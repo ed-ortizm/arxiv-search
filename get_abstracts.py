@@ -7,13 +7,12 @@ The keywords correspond to the categories of interest for my research.
 
 import configparser
 import imaplib
+import re
 import requests
 from bs4 import BeautifulSoup
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen.canvas import Canvas
+
 
 # read config file
-
 config = configparser.ConfigParser(
     interpolation=configparser.ExtendedInterpolation()
 )
@@ -30,90 +29,74 @@ keywords = config.get('email', 'keywords').split(',')
 keywords = [keyword.strip() for keyword in keywords]
 
 # Connect to the email server
-mail = imaplib.IMAP4_SSL('imap.gmail.com')
 
-# Log in to the email account
-mail.login(my_email, password)
+with imaplib.IMAP4_SSL('imap.gmail.com') as mail:
 
-# Select the mailbox you want to search
-mail.select('INBOX')
+    # Log in to the email account
+    mail.login(my_email, password)
 
-# Search the specified pattern
-result, data = mail.search(
-    None,
-    'ALL',
-    'FROM "no-reply@arxiv.org"'
-)
+    # Select the mailbox you want to search
+    mail.select('INBOX')
 
-print(f"Succesful read: {result}")
+    # Search the specified pattern
+    result, data = mail.search(
+        None,
+        'ALL',
+        'FROM "no-reply@arxiv.org"'
+    )
 
-# Get the list of email IDs
-email_ids = data[0]
-# Split the email IDs into a list
-email_ids = email_ids.split()
+    # Get the list of email IDs
+    email_ids = data[0]
 
-# Create the PDF file
+    # Split the email IDs into a list
+    email_ids = email_ids.split()
+    
+    print(f"Succesful read: {result}. Found {len(email_ids)} emails.\n")
+    
+    # Loop through the email IDs and retrieve the emails
+    
+    for idx, email_id in enumerate(email_ids):
+
+        fetch_result, data = mail.fetch(email_id, "(RFC822)")
+        email_body = data[0][1].decode("utf-8")
+
+        # Check if the email is clipped and get the full message
+        if '[Message clipped]  View entire message' in email_body:
+
+            # Extract the link to the full message from the email
+            soup = BeautifulSoup(email_body, 'html.parser')
+            view_link = soup.find('a')['href']
+
+            # Send a GET request to the link to retrieve the full message
+            r = requests.get(view_link, timeout=5)
+
+            # Parse the response
+            soup = BeautifulSoup(r.text, 'html.parser')
+
+            # update email_body as the full message text without html
+            email_body = soup.text
+
+        matches = re.findall(
+            r'[Tt]itle:(.*?)-{5,}',
+            email_body,
+            re.DOTALL
+        )
+
+        # select elements with the keywords in the matches
+        relevant_matches = []
+
+        for idx, match in enumerate(matches):
+
+            if any(keyword in match for keyword in keywords):
+
+                print(f"Match {idx}", end="\r")
+
+                relevant_matches.append(match)
+
 save_to = config.get('pdf', 'save_to')
 
-pdf_file = 'results.pdf'
-canvas = Canvas(pdf_file, pagesize=letter)
+with open(f"{save_to}/results.txt", "w", encoding='utf-8') as f:
 
-# Set the font and font size
-canvas.setFont('Helvetica', 12)
+    for match in relevant_matches:
 
-# Loop through the email IDs and retrieve the emails
-for idx, email_id in enumerate(email_ids):
-
-    fetch_result, data = mail.fetch(email_id, "(RFC822)")
-    email = data[0][1]
-
-    # Convert the email to a string
-    email = email.decode('utf-8')
-
-    print(email)
-
-    if idx == 0:
-        break
-
-    # if '[Message clipped]  View entire message' in email:
-    #     # Extract the link to the full message from the email
-    #     soup = BeautifulSoup(email, 'html.parser')
-    #     view_link = soup.find('a')['href']
-
-    #     # Send a GET request to the link to retrieve the full message
-    #     r = requests.get(view_link, timeout=5)
-
-    #     # Parse the response
-    #     soup = BeautifulSoup(r.text, 'html.parser')
-
-    #     # Get the titles and abstracts from the response
-    #     titles = soup.find_all('div', {'class': 'list-title'})
-    #     abstracts = soup.find_all('blockquote', {'class': 'abstract mathjax'})
-
-    # else:
-    #     soup = BeautifulSoup(email, 'html.parser')
-    #     titles = soup.find_all('div', {'class': 'list-title'})
-    #     abstracts = soup.find_all('blockquote', {'class': 'abstract mathjax'})
-
-    # print(abstracts, titles)
-
-    # # Loop through the titles and abstracts
-    # for title, abstract in zip(titles, abstracts):
-    #     # Check if any of the keywords are in the title or abstract
-    #     if any(
-    #         keyword in title.text
-    #         or
-    #         keyword in abstract.text
-    #         for keyword in keywords
-    #     ):
-    #         # Add the title and abstract to the PDF file
-    #         canvas.drawString(50, 750, title.text)
-    #         canvas.drawString(50, 730, abstract.text)
-    #         canvas.showPage()
-
-    # # Save the PDF file
-    # canvas.save()
-
-    # # Disconnect from the email server
-    # mail.close()
-    # mail.logout()
+        f.write(match)
