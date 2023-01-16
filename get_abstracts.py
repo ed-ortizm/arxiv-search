@@ -6,10 +6,9 @@ The keywords correspond to the categories of interest for my research.
 """
 
 import configparser
+import datetime
 import imaplib
 import re
-import requests
-from bs4 import BeautifulSoup
 
 
 # read config file
@@ -50,31 +49,24 @@ with imaplib.IMAP4_SSL('imap.gmail.com') as mail:
 
     # Split the email IDs into a list
     email_ids = email_ids.split()
-    
+
     print(f"Succesful read: {result}. Found {len(email_ids)} emails.\n")
-    
+
     # Loop through the email IDs and retrieve the emails
-    
+
     for idx, email_id in enumerate(email_ids):
 
         fetch_result, data = mail.fetch(email_id, "(RFC822)")
         email_body = data[0][1].decode("utf-8")
 
-        # Check if the email is clipped and get the full message
-        if '[Message clipped]  View entire message' in email_body:
+        # save the email body to a file
+        with open(
+            f"/home/edgar/Downloads/{idx}.txt",
+            "w",
+            encoding='utf-8'
+        ) as f:
 
-            # Extract the link to the full message from the email
-            soup = BeautifulSoup(email_body, 'html.parser')
-            view_link = soup.find('a')['href']
-
-            # Send a GET request to the link to retrieve the full message
-            r = requests.get(view_link, timeout=5)
-
-            # Parse the response
-            soup = BeautifulSoup(r.text, 'html.parser')
-
-            # update email_body as the full message text without html
-            email_body = soup.text
+            f.write(email_body)
 
         matches = re.findall(
             r'[Tt]itle:(.*?)-{5,}',
@@ -89,13 +81,22 @@ with imaplib.IMAP4_SSL('imap.gmail.com') as mail:
 
             if any(keyword in match for keyword in keywords):
 
-                print(f"Match {idx}", end="\r")
+                # print(f"Match {idx}", end="\r")
 
                 relevant_matches.append(match)
 
-save_to = config.get('pdf', 'save_to')
+# get time stamp to add to the file name
 
-with open(f"{save_to}/results.txt", "w", encoding='utf-8') as f:
+now = datetime.datetime.now()
+time_stamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+
+
+save_to = config.get('directory', 'save_to')
+file_name = config.get('file', 'file_name')
+
+with open(
+    f"{save_to}/abstracts_{time_stamp}.txt", "w", encoding='utf-8'
+) as f:
 
     for match in relevant_matches:
 
